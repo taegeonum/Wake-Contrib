@@ -13,18 +13,20 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.microsoft.reef.common.synchronization;
+package com.microsoft.wake.contrib.synchronization;
 
-import com.microsoft.reef.common.synchronization.Phaser.Master;
-import com.microsoft.reef.common.synchronization.Phaser.NumParticipants;
-import com.microsoft.reef.common.synchronization.Phaser.ParticipantBuilder;
-import com.microsoft.reef.common.synchronization.Phaser.Participants;
-import com.microsoft.reef.runtime.common.utils.RemoteManager;
+import com.microsoft.wake.contrib.synchronization.Phaser.Master;
+import com.microsoft.wake.contrib.synchronization.Phaser.NumParticipants;
+import com.microsoft.wake.contrib.synchronization.Phaser.ParticipantBuilder;
+import com.microsoft.wake.contrib.synchronization.Phaser.Participants;
 import com.microsoft.tang.Injector;
 import com.microsoft.tang.JavaConfigurationBuilder;
 import com.microsoft.tang.Tang;
 import com.microsoft.wake.remote.RemoteConfiguration;
 import com.microsoft.wake.remote.RemoteConfiguration.ManagerName;
+import com.microsoft.wake.remote.RemoteIdentifier;
+import com.microsoft.wake.remote.RemoteIdentifierFactory;
+import com.microsoft.wake.remote.RemoteManager;
 import org.junit.Assert;
 import org.junit.Rule;
 import org.junit.Test;
@@ -40,12 +42,13 @@ import java.util.logging.Logger;
 public class PhaserTest {
   private static final Logger LOG = Logger.getLogger(PhaserTest.class.getName());
 
-//  @Rule
+  @Rule
   public TestName name = new TestName();
 
-//  @Test
+  @Test
   public void testPhaser() throws Exception {
     System.out.println(name.getMethodName());
+
 
 
     Injector inj1;
@@ -56,7 +59,7 @@ public class PhaserTest {
       inj1 = Tang.Factory.getTang().newInjector(cb.build());
     }
     RemoteManager rm1 = inj1.getInstance(RemoteManager.class);
-    String id1 = rm1.getMyIdentifier();
+    RemoteIdentifier id1 = rm1.getMyIdentifier();
 
     Injector inj2;
     {
@@ -66,16 +69,17 @@ public class PhaserTest {
       inj2 = Tang.Factory.getTang().newInjector(cb.build());
     }
     RemoteManager rm2 = inj2.getInstance(RemoteManager.class);
-    String id2 = rm2.getMyIdentifier();
+    RemoteIdentifier id2 = rm2.getMyIdentifier();
+    RemoteIdentifierFactory fac2 = inj2.getInstance(RemoteIdentifierFactory.class);
 
     Injector pi1;
     {
       JavaConfigurationBuilder cb = Tang.Factory.getTang().newConfigurationBuilder();
       cb.bindNamedParameter(Participants.class, ParticipantBuilder.newBuilder()
-          .add(id1)
-          .add(id2)
+          .add(id1.toString())
+          .add(id2.toString())
           .build());
-      cb.bindNamedParameter(Master.class, id1);
+      cb.bindNamedParameter(Master.class, id1.toString());
       cb.bindNamedParameter(NumParticipants.class, "2");
       pi1 = inj1.createChildInjector(cb.build());
     }
@@ -83,7 +87,7 @@ public class PhaserTest {
     Injector pi2;
     {
       JavaConfigurationBuilder cb = Tang.Factory.getTang().newConfigurationBuilder();
-      cb.bindNamedParameter(Master.class, id1);
+      cb.bindNamedParameter(Master.class, id1.toString());
       pi2 = inj2.createChildInjector(cb.build());
       // pi2.bindVolatileInstance(RemoteManager.class, rm2);
     }
@@ -136,7 +140,7 @@ public class PhaserTest {
     rm2.close();
   }
 
-//  @Test
+  @Test
   public void testDelayedRegistration() throws Exception {
     System.out.println(name.getMethodName());
 
@@ -149,7 +153,7 @@ public class PhaserTest {
       inj1 = Tang.Factory.getTang().newInjector(cb.build());
     }
     RemoteManager rm1 = inj1.getInstance(RemoteManager.class);
-    String id1 = rm1.getMyIdentifier();
+    RemoteIdentifier id1 = rm1.getMyIdentifier();
 
     Injector inj2;
     {
@@ -166,7 +170,7 @@ public class PhaserTest {
       /* 
        * Omitting the Participants field to allow delayed registration to trigger 
        */
-      cb.bindNamedParameter(Master.class, id1);
+      cb.bindNamedParameter(Master.class, id1.toString());
       cb.bindNamedParameter(NumParticipants.class, "2");
       pi1 = inj1.createChildInjector(cb.build());
     }
@@ -174,7 +178,7 @@ public class PhaserTest {
     Injector pi2;
     {
       JavaConfigurationBuilder cb = Tang.Factory.getTang().newConfigurationBuilder();
-      cb.bindNamedParameter(Master.class, id1);
+      cb.bindNamedParameter(Master.class, id1.toString());
       pi2 = inj2.createChildInjector(cb.build());
     }
 
@@ -226,7 +230,7 @@ public class PhaserTest {
     rm2.close();
   }
 
-//  @Test
+  @Test
   public void testParentToMany() throws Exception {
     LOG.log(Level.FINE, "Starting: " + name.getMethodName());
 
@@ -241,7 +245,7 @@ public class PhaserTest {
       masterInjector = Tang.Factory.getTang().newInjector(cb.build());
     }
     final RemoteManager masterRemoteManager = masterInjector.getInstance(RemoteManager.class);
-    final String masterIdentifier = masterRemoteManager.getMyIdentifier();
+    final RemoteIdentifier masterIdentifier = masterRemoteManager.getMyIdentifier();
 
     final Injector[] childInjectors = new Injector[numChildren];
     final RemoteManager[] childRMs = new RemoteManager[numChildren];
@@ -259,7 +263,7 @@ public class PhaserTest {
       /* 
        * Omitting the Participants field to allow delayed registration to trigger 
        */
-      cb.bindNamedParameter(Master.class, masterIdentifier);
+      cb.bindNamedParameter(Master.class, masterIdentifier.toString());
       cb.bindNamedParameter(NumParticipants.class, Integer.toString(numChildren));
       masterPhaserInjector = masterInjector.forkInjector(cb.build());
     }
@@ -267,7 +271,7 @@ public class PhaserTest {
     final Injector[] phaserInjectors = new Injector[numChildren];
     for (int t = 0; t < numChildren; t++) {
       JavaConfigurationBuilder cb = Tang.Factory.getTang().newConfigurationBuilder();
-      cb.bindNamedParameter(Master.class, masterIdentifier);
+      cb.bindNamedParameter(Master.class, masterIdentifier.toString());
       phaserInjectors[t] = childInjectors[t].forkInjector(cb.build());
     }
 

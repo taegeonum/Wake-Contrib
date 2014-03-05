@@ -13,12 +13,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.microsoft.reef.common.synchronization;
+package com.microsoft.wake.contrib.synchronization;
 
-import com.microsoft.reef.annotations.audience.Private;
-
-@Private
-class Signal { 
+class Signal {
   private boolean done;
 
   public synchronized void signal() {

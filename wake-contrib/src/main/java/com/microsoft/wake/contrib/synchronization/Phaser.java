@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.microsoft.reef.common.synchronization;
+package com.microsoft.wake.contrib.synchronization;
 
 import java.io.Serializable;
 import java.util.ArrayList;
@@ -24,13 +24,15 @@ import java.util.logging.Logger;
 
 import javax.inject.Inject;
 
-import com.microsoft.reef.runtime.common.utils.RemoteManager;
 import com.microsoft.tang.annotations.Name;
 import com.microsoft.tang.annotations.NamedParameter;
 import com.microsoft.tang.annotations.Parameter;
 import com.microsoft.wake.EStage;
 import com.microsoft.wake.EventHandler;
 import com.microsoft.wake.impl.ThreadPoolStage;
+import com.microsoft.wake.remote.RemoteIdentifier;
+import com.microsoft.wake.remote.RemoteIdentifierFactory;
+import com.microsoft.wake.remote.RemoteManager;
 import com.microsoft.wake.remote.RemoteMessage;
 
 /**
@@ -51,7 +53,7 @@ public class Phaser implements AutoCloseable {
   /**
    * Identifier for the endpoint that is coordinating
    */
-  private final String masterRID;
+  private final RemoteIdentifier masterRID;
   
   /**
    * For sending signals to the master
@@ -82,7 +84,7 @@ public class Phaser implements AutoCloseable {
   /**
    * Identifier of this node
    */
-  private final String selfRID;
+  private final RemoteIdentifier selfRID;
   
   /**
    * number of signals received
@@ -93,6 +95,11 @@ public class Phaser implements AutoCloseable {
    * Whether the participants will provide their own address
    */
   private final boolean delayedRegistration;
+
+  /**
+   * Factory for creating remote identifiers
+   */
+  private final RemoteIdentifierFactory idfac;
   
   // non masters don't care about participants
   @NamedParameter
@@ -107,8 +114,8 @@ public class Phaser implements AutoCloseable {
   
   private static class SignalMessage implements Serializable {
     private static final long serialVersionUID = 1L;
-    public final String remoteId;
-    public SignalMessage(String remoteId) {
+    public final RemoteIdentifier remoteId;
+    public SignalMessage(RemoteIdentifier remoteId) {
       this.remoteId = remoteId;
     }
   }
@@ -118,26 +125,30 @@ public class Phaser implements AutoCloseable {
   
   @Inject
   public Phaser(RemoteManager remoteManager,
-      @Parameter(Master.class) String masterRID, 
+                RemoteIdentifierFactory idfac,
+      @Parameter(Master.class) String masterRID,
       @Parameter(NumParticipants.class) int numParticipants) {
-    this(remoteManager, "", masterRID, numParticipants, true);
+    this(remoteManager, idfac, "", masterRID, numParticipants, true);
   }
   
   @Inject
   private Phaser(RemoteManager remoteManager,
+                 RemoteIdentifierFactory idfac,
       @Parameter(Participants.class) String participants,
       @Parameter(Master.class) String masterRID, 
       @Parameter(NumParticipants.class) int numParticipants) {
-    this(remoteManager, participants, masterRID, numParticipants, false);
+    this(remoteManager, idfac, participants, masterRID, numParticipants, false);
   }
   
   private Phaser(RemoteManager remoteManager,
+                 RemoteIdentifierFactory idfac,
                 String participants,
-                String masterRID, 
+                String masterRIDstr,
                 int numParticipants,
                 boolean delayedRegistration) {
     this.remoteManager = remoteManager;
-    this.masterRID = masterRID;
+    this.idfac = idfac;
+    this.masterRID = idfac.getNewInstance(masterRIDstr);
     this.selfRID = remoteManager.getMyIdentifier();
     this.signal = new Signal();
     this.num = numParticipants;
@@ -145,11 +156,12 @@ public class Phaser implements AutoCloseable {
     
     this.checkedIn = new AtomicInteger(0);
    
-    if (masterRID.equals(selfRID)) {
+    if (this.masterRID.equals(selfRID)) {
       this.participantsHandlers = new ArrayList<>();
       if (!delayedRegistration) {
         for (String p : ParticipantBuilder.parse(participants)) {
-          this.participantsHandlers.add(remoteManager.getHandler(p, SignalDoneMessage.class));
+          RemoteIdentifier pident = idfac.getNewInstance(p);
+          this.participantsHandlers.add(remoteManager.getHandler(pident, SignalDoneMessage.class));
         }
       }
     } else {
