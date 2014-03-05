@@ -1,4 +1,4 @@
-package com.microsoft.reef.io.grouper;
+package com.microsoft.wake.contrib.grouper;
 /**
  * Copyright (C) 2013 Microsoft Corporation
  *

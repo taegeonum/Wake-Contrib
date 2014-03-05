@@ -1,4 +1,4 @@
-package com.microsoft.reef.io.grouper.impl;
+package com.microsoft.wake.contrib.grouper.impl;
 /**
  * Copyright (C) 2013 Microsoft Corporation
  *
@@ -27,9 +27,9 @@ import javax.inject.Inject;
 
 import org.apache.commons.lang.NotImplementedException;
 
-import com.microsoft.reef.io.Tuple;
-import com.microsoft.reef.io.grouper.Grouper;
-import com.microsoft.reef.io.grouper.GrouperEvent;
+import com.microsoft.wake.contrib.grouper.Tuple;
+import com.microsoft.wake.contrib.grouper.Grouper;
+import com.microsoft.wake.contrib.grouper.GrouperEvent;
 import com.microsoft.tang.annotations.Parameter;
 import com.microsoft.wake.EStage;
 import com.microsoft.wake.EventHandler;

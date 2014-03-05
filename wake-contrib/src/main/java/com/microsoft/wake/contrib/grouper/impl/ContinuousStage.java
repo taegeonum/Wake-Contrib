@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.microsoft.reef.io.grouper.impl;
+package com.microsoft.wake.contrib.grouper.impl;
 
 import java.util.Arrays;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -32,13 +32,6 @@ import com.microsoft.wake.StageConfiguration;
 import com.microsoft.wake.exception.WakeRuntimeException;
 import com.microsoft.wake.impl.StageManager;
 import com.microsoft.wake.rx.Observer;
-
-import javax.inject.Inject;
-import java.util.Arrays;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicReference;
-import java.util.logging.Logger;
 
 
 /**
@@ -67,7 +60,7 @@ public final class ContinuousStage<T> extends AbstractEStage<T> {
   /**
    * Constructs a stage that continuously executes an event with specified number of threads
    *
-   * @param observer   the observer to execute
+   * @param handler   the observer to execute
    * @param numThreads the number of threads
    */
   @Inject

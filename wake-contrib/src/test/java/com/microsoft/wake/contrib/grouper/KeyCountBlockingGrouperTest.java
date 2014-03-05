@@ -13,16 +13,16 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.microsoft.reef.io.grouper;
+package com.microsoft.wake.contrib.grouper;
 
-import com.microsoft.reef.io.Tuple;
-import com.microsoft.reef.io.grouper.Grouper.Combiner;
-import com.microsoft.reef.io.grouper.Grouper.Extractor;
-import com.microsoft.reef.io.grouper.Grouper.Partitioner;
-import com.microsoft.reef.io.grouper.impl.CombiningBlockingGrouper;
-import com.microsoft.reef.io.grouper.impl.KeyCountGrouperUtils.CountedPair;
-import com.microsoft.reef.io.grouper.impl.KeyCountGrouperUtils.CountedPairExtractor;
-import com.microsoft.reef.io.grouper.impl.KeyCountGrouperUtils.DownCountedPairCombiner;
+import com.microsoft.wake.contrib.grouper.Tuple;
+import com.microsoft.wake.contrib.grouper.Grouper.Combiner;
+import com.microsoft.wake.contrib.grouper.Grouper.Extractor;
+import com.microsoft.wake.contrib.grouper.Grouper.Partitioner;
+import com.microsoft.wake.contrib.grouper.impl.CombiningBlockingGrouper;
+import com.microsoft.wake.contrib.grouper.impl.KeyCountGrouperUtils.CountedPair;
+import com.microsoft.wake.contrib.grouper.impl.KeyCountGrouperUtils.CountedPairExtractor;
+import com.microsoft.wake.contrib.grouper.impl.KeyCountGrouperUtils.DownCountedPairCombiner;
 import com.microsoft.tang.Injector;
 import com.microsoft.tang.JavaConfigurationBuilder;
 import com.microsoft.tang.Tang;

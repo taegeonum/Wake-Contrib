@@ -1,4 +1,4 @@
-package com.microsoft.reef.io.grouper;
+package com.microsoft.wake.contrib.grouper;
 /**
  * Copyright (C) 2013 Microsoft Corporation
  *
@@ -15,15 +15,15 @@ package com.microsoft.reef.io.grouper;
  * limitations under the License.
  */
 
-import com.microsoft.reef.io.Tuple;
-import com.microsoft.reef.io.grouper.Grouper.Combiner;
-import com.microsoft.reef.io.grouper.Grouper.Extractor;
-import com.microsoft.reef.io.grouper.Grouper.Partitioner;
-import com.microsoft.reef.io.grouper.impl.AppendingSnowshovelGrouper;
-import com.microsoft.reef.io.grouper.impl.CombiningBlockingGrouper;
-import com.microsoft.reef.io.grouper.impl.CombiningSnowshovelGrouper;
-import com.microsoft.reef.io.grouper.impl.SnowshovelGrouper;
-import com.microsoft.reef.io.grouper.impl.SynchronousGrouper;
+import com.microsoft.wake.contrib.grouper.Tuple;
+import com.microsoft.wake.contrib.grouper.Grouper.Combiner;
+import com.microsoft.wake.contrib.grouper.Grouper.Extractor;
+import com.microsoft.wake.contrib.grouper.Grouper.Partitioner;
+import com.microsoft.wake.contrib.grouper.impl.AppendingSnowshovelGrouper;
+import com.microsoft.wake.contrib.grouper.impl.CombiningBlockingGrouper;
+import com.microsoft.wake.contrib.grouper.impl.CombiningSnowshovelGrouper;
+import com.microsoft.wake.contrib.grouper.impl.SnowshovelGrouper;
+import com.microsoft.wake.contrib.grouper.impl.SynchronousGrouper;
 import com.microsoft.tang.Injector;
 import com.microsoft.tang.JavaConfigurationBuilder;
 import com.microsoft.tang.Tang;

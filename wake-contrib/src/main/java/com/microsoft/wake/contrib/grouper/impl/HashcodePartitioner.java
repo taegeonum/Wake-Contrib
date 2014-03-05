@@ -1,4 +1,4 @@
-package com.microsoft.reef.io.grouper.impl;
+package com.microsoft.wake.contrib.grouper.impl;
 /**
  * Copyright (C) 2013 Microsoft Corporation
  *
@@ -15,7 +15,7 @@ package com.microsoft.reef.io.grouper.impl;
  * limitations under the License.
  */
 
-import com.microsoft.reef.io.grouper.ProjectingPartitioner;
+import com.microsoft.wake.contrib.grouper.ProjectingPartitioner;
 import com.microsoft.tang.annotations.Name;
 import com.microsoft.tang.annotations.NamedParameter;
 import com.microsoft.tang.annotations.Parameter;

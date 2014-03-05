@@ -13,13 +13,13 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.microsoft.reef.io.grouper.impl;
+package com.microsoft.wake.contrib.grouper.impl;
 
-import com.microsoft.reef.io.Tuple;
-import com.microsoft.reef.io.grouper.Countable;
-import com.microsoft.reef.io.grouper.Grouper;
-import com.microsoft.reef.io.grouper.Grouper.Combiner;
-import com.microsoft.reef.io.grouper.Grouper.Extractor;
+import com.microsoft.wake.contrib.grouper.Tuple;
+import com.microsoft.wake.contrib.grouper.Countable;
+import com.microsoft.wake.contrib.grouper.Grouper;
+import com.microsoft.wake.contrib.grouper.Grouper.Combiner;
+import com.microsoft.wake.contrib.grouper.Grouper.Extractor;
 import com.microsoft.tang.annotations.Name;
 import com.microsoft.tang.annotations.NamedParameter;
 import com.microsoft.tang.annotations.Parameter;

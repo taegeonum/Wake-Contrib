@@ -1,4 +1,4 @@
-package com.microsoft.reef.io.grouper;
+package com.microsoft.wake.contrib.grouper;
 /**
  * Copyright (C) 2013 Microsoft Corporation
  *
@@ -15,8 +15,8 @@ package com.microsoft.reef.io.grouper;
  * limitations under the License.
  */
 
-import com.microsoft.reef.io.grouper.Grouper.Partitioner;
-import com.microsoft.reef.io.grouper.impl.BroadcastPartitioner;
+import com.microsoft.wake.contrib.grouper.Grouper.Partitioner;
+import com.microsoft.wake.contrib.grouper.impl.BroadcastPartitioner;
 import junit.framework.TestCase;
 import org.junit.Test;
 
