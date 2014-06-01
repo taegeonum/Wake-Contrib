@@ -121,20 +121,22 @@ public final class ContinuousStage<T> extends AbstractEStage<T> {
       cthreads[i] = new Thread(new Runnable() {
         @Override
         public void run() {
-          try {
+          //try {
             while(!done[ci]) {
-              Thread.sleep(period_ms, period_ns);
+              long start = System.nanoTime();
+              while(System.nanoTime() - start < (period_ms * 1000 + period_ns)) {}
+              //Thread.sleep(period_ms, period_ns);
               handler.onNext(ci);
             } 
-          } catch (InterruptedException e) {
-            LOG.severe(e.toString());
-            e.printStackTrace();
-          } catch (Exception e) { // TODO: temporary interposition
-            e.printStackTrace();
-            throw e;
-          } finally {
+          //} catch (InterruptedException e) {
+          //  LOG.severe(e.toString());
+          //  e.printStackTrace();
+          //} catch (Exception e) { // TODO: temporary interposition
+          //  e.printStackTrace();
+          //  throw e;
+          //} finally {
             LOG.fine("Continuous thread exits");
-          }
+          //}
         }
       }, stageName+"-"+i);
       cthreads[i].start();

@@ -25,18 +25,19 @@ import com.microsoft.wake.contrib.grouper.Tuple;
 import com.microsoft.wake.contrib.grouper.Grouper;
 import com.microsoft.tang.annotations.Parameter;
 import com.microsoft.wake.StageConfiguration;
+import com.microsoft.wake.rx.AbstractRxStage;
 import com.microsoft.wake.rx.Observer;
 import com.microsoft.wake.rx.RxStage;
 import com.microsoft.wake.rx.impl.RxThreadPoolStage;
 
-public class SnowshovelGrouper<InType, OutType, K extends Comparable<K>, V> implements Grouper<InType> {
+public class SnowshovelGrouper<InType, OutType, K extends Comparable<K>, V> extends AbstractRxStage<InType> implements Grouper<InType> {
   private Logger LOG = Logger.getLogger(SnowshovelGrouper.class.getName());
   
   private final Combiner<OutType, K, V> c;
   private Partitioner<K> p;
   private Extractor<InType, K, V> ext;
   private final Observer<InType> inputObserver; 
-
+  private final Observer<Tuple<Integer, OutType>> o;
   private final RxStage<Tuple<Integer,OutType>> outputStage;
   
   @Inject
@@ -44,10 +45,12 @@ public class SnowshovelGrouper<InType, OutType, K extends Comparable<K>, V> impl
       @Parameter(StageConfiguration.StageObserver.class) Observer<Tuple<Integer, OutType>> o, 
       @Parameter(StageConfiguration.NumberOfThreads.class) int outputThreads,
       @Parameter(StageConfiguration.StageName.class) String stageName) {
+    super("SnowshoveGrouper");
     this.p = p;
     this.ext = ext;
     this.c = c;
     this.inputObserver = this.new InputImpl();
+    this.o = o;
     
     this.outputStage = new RxThreadPoolStage<Tuple<Integer, OutType>>(stageName, o, outputThreads);
 
@@ -68,7 +71,8 @@ public class SnowshovelGrouper<InType, OutType, K extends Comparable<K>, V> impl
   private class InputImpl implements Input<InType> {
     @Override
     public void onCompleted() {
-      outputStage.onCompleted();
+      //outputStage.onCompleted();
+      o.onCompleted();
     }
 
     @Override
@@ -82,7 +86,9 @@ public class SnowshovelGrouper<InType, OutType, K extends Comparable<K>, V> impl
       final K key = ext.key(datum);
       final V val = ext.value(datum);
       
-      outputStage.onNext(new Tuple<>(p.partition(key), c.generate(key, val)));
+      //outputStage.onNext(new Tuple<>(p.partition(key), c.generate(key, val)));
+      afterOnNext();
+      o.onNext(new Tuple<>(p.partition(key), c.generate(key, val)));
     }   
   }
 
@@ -106,6 +112,7 @@ public class SnowshovelGrouper<InType, OutType, K extends Comparable<K>, V> impl
   }
   @Override
   public void onNext(InType arg0) {
+    beforeOnNext();
     inputObserver.onNext(arg0);
   }
 }
