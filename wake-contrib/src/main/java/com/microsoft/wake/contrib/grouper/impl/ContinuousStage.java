@@ -16,6 +16,10 @@
 package com.microsoft.wake.contrib.grouper.impl;
 
 import java.util.Arrays;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -53,6 +57,8 @@ public final class ContinuousStage<T> extends AbstractEStage<T> {
   
   private final long period_ms;
   private final int period_ns;
+
+  private ScheduledExecutorService scheduler;
   
   @NamedParameter(default_value="0")
   public final static class PeriodNS implements Name<Long>{}
@@ -93,10 +99,11 @@ public final class ContinuousStage<T> extends AbstractEStage<T> {
 
     this.active = new AtomicInteger();
     
+    this.scheduler = Executors.newScheduledThreadPool(numThreads);
     // put the period into the format needed by Thread.sleep
-    this.period_ms = Math.max(0L, (period_ns-999999)/(1000*1000));
-    this.period_ns = (int)Math.max(0L, period_ns-(this.period_ms*1000*1000));
-
+    this.period_ms = Math.max(1L, period_ns/1000000);
+    this.period_ns = (int)Math.max(0L, period_ns%1000000);
+    System.out.println("Continuous Stage: " + this.period_ms);
     StageManager.instance().register(this);
   }
 
@@ -115,17 +122,41 @@ public final class ContinuousStage<T> extends AbstractEStage<T> {
 
 
     active.set(numThreads);
+    
+
+    class OutputTask implements Runnable {
+      private int idx;
+      public OutputTask(int idx){
+        this.idx = idx;
+      }
+      
+      @Override
+      public void run() {
+        // TODO Auto-generated method stub
+        handler.onNext(idx);
+      }
+    }
+    
     Thread[] cthreads = threads.get();
     for (int i = 0; i < numThreads; i++) {
+      scheduler.scheduleAtFixedRate(new OutputTask(i), this.period_ms, this.period_ms, java.util.concurrent.TimeUnit.MILLISECONDS);
+    }
+    /*
       final int ci = i;
       cthreads[i] = new Thread(new Runnable() {
         @Override
         public void run() {
           //try {
             while(!done[ci]) {
-              long start = System.nanoTime();
-              while(System.nanoTime() - start < (period_ms * 1000 + period_ns)) {}
-              //Thread.sleep(period_ms, period_ns);
+              //long start = System.nanoTime();
+              //while(System.nanoTime() - start < (period_ms * 1000 + period_ns)) {}
+              try {
+                //System.out.println("period_ms: " + period_ms + ", period_ns: " + period_ns);
+                Thread.sleep(period_ms, period_ns);
+              } catch (InterruptedException e) {
+                // TODO Auto-generated catch block
+                e.printStackTrace();
+              }
               handler.onNext(ci);
             } 
           //} catch (InterruptedException e) {
@@ -141,6 +172,8 @@ public final class ContinuousStage<T> extends AbstractEStage<T> {
       }, stageName+"-"+i);
       cthreads[i].start();
     }
+    */
+    
     afterOnNext();
   }
 
@@ -152,7 +185,14 @@ public final class ContinuousStage<T> extends AbstractEStage<T> {
    */
   @Override
   public void close() throws Exception {
+    if(!scheduler.isTerminated()){
+      scheduler.awaitTermination(1000, TimeUnit.MILLISECONDS);
+    }
+    
+    /*
     if (closed.compareAndSet(false, true)) {
+    
+      
       Thread[] threadsArr = threads.get();
       if (threadsArr == null) {
         LOG.warning("close() was called without onNext");
@@ -164,6 +204,7 @@ public final class ContinuousStage<T> extends AbstractEStage<T> {
     } else {
       LOG.warning("close() was already called. This call is ignored");
     }
+    */
   }
 
   public EventHandler<Integer> getDoneHandler() {
@@ -172,6 +213,7 @@ public final class ContinuousStage<T> extends AbstractEStage<T> {
       public void onNext(Integer id) {
         done[id] = true;
         if (0 == active.decrementAndGet()) {
+          scheduler.shutdown();
           handler.onCompleted();
         }
       }
