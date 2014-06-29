@@ -18,12 +18,18 @@ package com.microsoft.wake.contrib.grouper.impl;
 import com.microsoft.wake.contrib.grouper.Tuple;
 import com.microsoft.wake.contrib.grouper.Grouper;
 import com.microsoft.wake.contrib.grouper.GrouperEvent;
+import com.microsoft.wake.impl.ThreadPoolStage;
+import com.microsoft.tang.Injector;
+import com.microsoft.tang.JavaConfigurationBuilder;
+import com.microsoft.tang.Tang;
 import com.microsoft.tang.annotations.Parameter;
 import com.microsoft.wake.EStage;
 import com.microsoft.wake.EventHandler;
 import com.microsoft.wake.StageConfiguration;
 import com.microsoft.wake.rx.AbstractRxStage;
 import com.microsoft.wake.rx.Observer;
+import com.microsoft.wake.time.event.Alarm;
+import com.microsoft.wake.time.runtime.RuntimeClock;
 
 import org.apache.commons.lang.NotImplementedException;
 
@@ -51,6 +57,20 @@ public class CombiningSnowshovelGrouper<InType, OutType, K, V> extends AbstractR
   private final EventHandler<Integer> doneHandler;
   
   private final AtomicInteger sleeping;
+
+  private final OutputImpl outputHandler;
+  
+  // TODO: remove
+  private final AtomicInteger combinedCount = new AtomicInteger(0);
+  private final AtomicInteger prevCombinedCount = new AtomicInteger(0);
+  private  long startTime;
+  private  long endTime;
+  
+  private long prevAdjustedTime;
+
+  private RuntimeClock clock;
+
+  private ThreadPoolStage<Alarm> stage;
   
   @Inject
   public CombiningSnowshovelGrouper(Combiner<OutType, K, V> c, Partitioner<K> p, Extractor<InType, K, V> ext,
@@ -59,12 +79,26 @@ public class CombiningSnowshovelGrouper<InType, OutType, K, V> extends AbstractR
       @Parameter(StageConfiguration.StageName.class) String stageName,
       @Parameter(ContinuousStage.PeriodNS.class) long outputPeriod_ns) {
     super(stageName);
+    
+    // event checker 
+    try {
+      clock = buildClock();
+    } catch (Exception e) {
+      // TODO Auto-generated catch block
+      e.printStackTrace();
+    }
+    new Thread(clock).start();
+    final EventsCountChecker checker = new EventsCountChecker(clock, 500);
+    stage = new ThreadPoolStage<>(checker, 1);
+    stage.onNext(null);
+    
     this.c = c;
     this.p = p;
     this.ext = ext;
     this.o = o;
+    this.outputHandler = new OutputImpl();
     // calling this.new on a @Unit's inner class without its own state is currently the same as Tang injecting it
-    this.outputDriver = new ContinuousStage<Object>(this.new OutputImpl(), outputThreads, stageName+"-output", outputPeriod_ns);
+    this.outputDriver = new ContinuousStage<Object>(outputHandler, outputThreads, stageName+"-output", outputPeriod_ns);
     this.doneHandler = ((ContinuousStage<Object>)outputDriver).getDoneHandler();
     register = new ConcurrentSkipListMap<>();
     inputDone = false;
@@ -76,6 +110,14 @@ public class CombiningSnowshovelGrouper<InType, OutType, K, V> extends AbstractR
     // The alternative placement of this event is in the first call to onNext,
     // but Output onNext already provides blocking
     outputDriver.onNext(new GrouperEvent());
+    // TODO: remove
+    startTime = prevAdjustedTime = System.nanoTime();
+    
+    
+    // TODO: remove
+    System.out.println("<!--");
+    System.out.println("snow-" + outputPeriod_ns + "_combiningRate");
+    System.out.println("# time  aggregatedCount  elapsed_time currCombiningRate");
   }
 
   @Inject
@@ -101,6 +143,7 @@ public class CombiningSnowshovelGrouper<InType, OutType, K, V> extends AbstractR
         inputDone = true;
         register.notifyAll();
       }
+      outputHandler.onNext(0);
     }
 
     @Override
@@ -138,6 +181,9 @@ public class CombiningSnowshovelGrouper<InType, OutType, K, V> extends AbstractR
           }
         }
       } while (true);
+      
+      // TODO: remove
+      combinedCount.incrementAndGet();
 
       // TODO: make less conservative
       if (sleeping.get() > 0) {
@@ -145,6 +191,9 @@ public class CombiningSnowshovelGrouper<InType, OutType, K, V> extends AbstractR
           register.notify();
         }
       }
+      
+      
+
      
       /*if (val instanceof Integer) {
         LOG.info("snow shovel size "+register.size());
@@ -204,6 +253,11 @@ public class CombiningSnowshovelGrouper<InType, OutType, K, V> extends AbstractR
           }
           sleeping.decrementAndGet();
           if (inputDone) {
+            //TODO: remove
+            endTime = System.nanoTime();
+            
+            System.out.println("# combiningRate: " + combinedCount.get() / ((endTime - startTime) / 1000000000.0) + ", combinedCount: " + combinedCount.get());
+            System.out.println("-->");
             doneHandler.onNext(threadId);
             return;
           }
@@ -224,9 +278,50 @@ public class CombiningSnowshovelGrouper<InType, OutType, K, V> extends AbstractR
           cursor = (nextKey == null) ? null : new Tuple<>(nextKey, register.remove(nextKey));
         }
       } while (!flushedSomething);
+      
 
+      
+      //System.out.println("acutual elapsed_time:" + (System.nanoTime() - prevAdjustedTime)/1000000.0);
     }
   }
+  
+  // TODO: remove
+  private class EventsCountChecker implements EventHandler<Alarm> {
+
+    private final RuntimeClock clock;
+    private final int duration;
+
+    public EventsCountChecker(RuntimeClock clock, Integer eventsCheckingDuration) {
+      this.clock = clock;
+      this.duration = eventsCheckingDuration;
+
+    }
+
+    @Override
+    public void onNext(final Alarm value) {
+      int cntSnapshot = combinedCount.get();
+      long currTime = System.nanoTime();
+      int elapsedTime = (int) ((currTime - startTime) / 1000000.0);
+      int actualElapsedTime = (int) ((currTime - prevAdjustedTime) / 1000000.0);
+      System.out.println(elapsedTime + "\t" + cntSnapshot + "\t" +  actualElapsedTime + "\t" + (cntSnapshot - prevCombinedCount.get()) * 1000.0 / actualElapsedTime );
+      
+      prevCombinedCount.set(cntSnapshot);
+      prevAdjustedTime = currTime;
+      clock.scheduleAlarm(duration, this);
+    }
+  }
+  
+  // TODO: remove
+  private static RuntimeClock buildClock() throws Exception {
+    final JavaConfigurationBuilder builder = Tang.Factory.getTang()
+        .newConfigurationBuilder();
+
+    final Injector injector = Tang.Factory.getTang()
+        .newInjector(builder.build());
+
+    return injector.getInstance(RuntimeClock.class);
+  }
+  
   
   @Override
   public String toString() {
@@ -236,6 +331,8 @@ public class CombiningSnowshovelGrouper<InType, OutType, K, V> extends AbstractR
   @Override
   public void close() throws Exception {
     this.outputDriver.close();
+    stage.close();
+    clock.close();
   }
 
   @Override

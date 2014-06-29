@@ -58,12 +58,8 @@ public final class InitialDelayStage<T> extends AbstractEStage<T> {
 
   private final Observer<T> handler;
   private final int numThreads;
-  private final DefaultThreadFactory tf;
   private final long shutdownTimeout = WakeParameters.EXECUTOR_SHUTDOWN_TIMEOUT;
   private final AtomicBoolean done = new AtomicBoolean(false);
-
-  private Object clock ;
-
   private ScheduledExecutorService scheduler;
 
   @NamedParameter(default_value="1000")
@@ -87,19 +83,10 @@ public final class InitialDelayStage<T> extends AbstractEStage<T> {
     if (numThreads <= 0)
       throw new WakeRuntimeException("numThreads " + numThreads + " is less than or equal to 0");
 
-    this.tf = new DefaultThreadFactory(name);
     this.numThreads = numThreads;
-
-    final JavaConfigurationBuilder builder = Tang.Factory.getTang()
-        .newConfigurationBuilder();
-
-    final Injector injector = Tang.Factory.getTang()
-        .newInjector(builder.build());
-
-    this.clock =  injector.getInstance(RuntimeClock.class);
     this.scheduler = Executors.newScheduledThreadPool(1);
 
-    System.out.println("Initial Delay Stage");
+    LOG.info("Initial Delay Stage");
     StageManager.instance().register(this);
   }
   

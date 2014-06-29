@@ -71,8 +71,8 @@ public class SnowshovelGrouper<InType, OutType, K extends Comparable<K>, V> exte
   private class InputImpl implements Input<InType> {
     @Override
     public void onCompleted() {
-      //outputStage.onCompleted();
-      o.onCompleted();
+      outputStage.onCompleted();
+      //o.onCompleted();
     }
 
     @Override
@@ -86,9 +86,9 @@ public class SnowshovelGrouper<InType, OutType, K extends Comparable<K>, V> exte
       final K key = ext.key(datum);
       final V val = ext.value(datum);
       
-      //outputStage.onNext(new Tuple<>(p.partition(key), c.generate(key, val)));
-      afterOnNext();
-      o.onNext(new Tuple<>(p.partition(key), c.generate(key, val)));
+      outputStage.onNext(new Tuple<>(p.partition(key), c.generate(key, val)));
+      //afterOnNext();
+      //o.onNext(new Tuple<>(p.partition(key), c.generate(key, val)));
     }   
   }
 
