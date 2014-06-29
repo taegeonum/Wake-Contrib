@@ -1,8 +1,11 @@
 package com.microsoft.wake.contrib.grouper.impl;
 
+import java.util.ArrayList;
+import java.util.LinkedList;
 import java.util.Map;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -14,30 +17,27 @@ import com.microsoft.tang.annotations.DefaultImplementation;
 import com.microsoft.tang.annotations.Name;
 import com.microsoft.tang.annotations.NamedParameter;
 import com.microsoft.tang.annotations.Parameter;
+import com.microsoft.tang.exceptions.InjectionException;
 import com.microsoft.wake.EStage;
 import com.microsoft.wake.EventHandler;
 import com.microsoft.wake.StageConfiguration;
 import com.microsoft.wake.contrib.grouper.Grouper;
-import com.microsoft.wake.contrib.grouper.GrouperEvent;
 import com.microsoft.wake.contrib.grouper.Tuple;
-import com.microsoft.wake.contrib.grouper.Grouper.Combiner;
-import com.microsoft.wake.contrib.grouper.Grouper.Extractor;
-import com.microsoft.wake.contrib.grouper.Grouper.Partitioner;
 import com.microsoft.wake.rx.AbstractRxStage;
 import com.microsoft.wake.rx.Observer;
 
 public class AdaptiveSnowshovelGrouper<InType, OutType, K, V> extends AbstractRxStage<InType> implements Grouper<InType> {
 
   @NamedParameter(doc = "The maximum flushing period. (ms)", short_name = "max_period", default_value = "300")
-  public static final class MaxPeriod implements Name<Integer> {}
+  public static final class MaxPeriod implements Name<Long> {}
 
   @NamedParameter(doc = "The minimum flushing period. (ms)", short_name = "min_period", default_value = "0")
-  public static final class MinPeriod implements Name<Integer> {}
+  public static final class MinPeriod implements Name<Long> {}
   
   @NamedParameter(doc = "The maximum aggregated count of inputs per sec. (inputs/sec)", short_name = "max_aggregated_count", default_value = "500000")
-  public static final class MaxAggregatedCount implements Name<Integer> {}
+  public static final class MaxAggregatedCount implements Name<Long> {}
   
-  
+  /*
   @DefaultImplementation(LinearAdaptiveFunction.class)
   public interface AdaptiveFunction {
     
@@ -48,12 +48,12 @@ public class AdaptiveSnowshovelGrouper<InType, OutType, K, V> extends AbstractRx
     
     // y = ax + b
     private final float a;
-    private final int b;
+    private final long b;
     
     @Inject
     public LinearAdaptiveFunction(@Parameter(MinPeriod.class) int minPeriod, 
-        @Parameter(MaxPeriod.class) int maxPeriod,
-        @Parameter(MaxAggregatedCount.class) int maxCombinedCount){
+        @Parameter(MaxPeriod.class) long maxPeriod,
+        @Parameter(MaxAggregatedCount.class) long maxCombinedCount){
       
       this.b = minPeriod;
       this.a = (maxPeriod - minPeriod) / (float)(maxCombinedCount);
@@ -106,6 +106,7 @@ public class AdaptiveSnowshovelGrouper<InType, OutType, K, V> extends AbstractRx
       return (int)(a * Math.pow(inputsPerSec,2) + b);
     }
   }
+  */
   
   private Logger LOG = Logger.getLogger(CombiningSnowshovelGrouper.class.getName());
   
@@ -117,36 +118,39 @@ public class AdaptiveSnowshovelGrouper<InType, OutType, K, V> extends AbstractRx
   private Observer<Tuple<Integer, OutType>> o;
   private final Observer<InType> inputObserver; 
 
-  private final EStage<Integer> outputDriver;
+  private final EStage<Long> outputDriver;
   private final EventHandler<Integer> doneHandler;
   
   private final AtomicInteger sleeping;
 
-  private final OutputImpl<Integer> outputHandler;
+  private final OutputImpl<Long> outputHandler;
 
-  private AdaptiveFunction func;
+  //private AdaptiveFunction func;
   
 
-  private final int WINDOW_SIZE = 1000; // ms 
+  private final int WINDOW_SIZE = 20000; // ms 
   
   
-  private int prevCombiningRate;
-  private int prevFlushingPeriod;
+  private long prevCombiningRate;
+  private long prevFlushingPeriod;
   
   private int currCombiningRate;
-  private int currFlushingPeriod;
+  private long currFlushingPeriod;
+  private long minPeriod;
   
-  private int flushingPeriodInterval; // ms
-  private int adjustingInterval; // ms 
+  private long flushingPeriodInterval; // ms
+  private long adjustingInterval; // ms 
   private long prevAdjustedTime;
+  private long prevElapsedTime;
   
   
-  private int currWindowSize; // ms
-  private int prevWindowSize; // ms
+  private long currWindowSize; // ms
+  private long prevWindowSize; // ms
   
-  private AtomicInteger currAggregatedCount;
-  private int prevAggregatedCount;
-  private final Boolean lock = new Boolean(false);
+  private long startTime;
+  
+  private AtomicLong currAggregatedCount;
+  private long prevAggregatedCount;
   
   /* 
    * Adaptive Snowshovel grouper 
@@ -168,21 +172,21 @@ public class AdaptiveSnowshovelGrouper<InType, OutType, K, V> extends AbstractRx
   public AdaptiveSnowshovelGrouper(Combiner<OutType, K, V> c, Partitioner<K> p, Extractor<InType, K, V> ext,
       @Parameter(StageConfiguration.StageObserver.class) Observer<Tuple<Integer, OutType>> o, 
       @Parameter(StageConfiguration.StageName.class) String stageName,
-      @Parameter(MaxPeriod.class) int maxPeriod,
-      @Parameter(MinPeriod.class) int minPeriod,
-      @Parameter(MaxAggregatedCount.class) int maxAggregatedCount,
-      AdaptiveFunction func
-      ) {
+      @Parameter(MaxPeriod.class) long maxPeriod,
+      @Parameter(MinPeriod.class) long minPeriod,
+      @Parameter(MaxAggregatedCount.class) long maxAggregatedCount
+      //AdaptiveFunction func
+      ) throws InjectionException {
     super(stageName);
     this.c = c;
     this.p = p;
     this.ext = ext;
     this.o = o;
-    this.func = func;
-    this.outputHandler = new OutputImpl<Integer>();
+    //this.func = func;
+    this.outputHandler = new OutputImpl<Long>();
     // calling this.new on a @Unit's inner class without its own state is currently the same as Tang injecting it
-    this.outputDriver = new InitialDelayStage<Integer>(outputHandler, 1, stageName+"-output");
-    this.doneHandler = ((InitialDelayStage<Integer>)outputDriver).getDoneHandler();
+    this.outputDriver = new InitialDelayStage<Long>(outputHandler, 1, stageName+"-output");
+    this.doneHandler = ((InitialDelayStage<Long>)outputDriver).getDoneHandler();
     register = new ConcurrentSkipListMap<>();
     inputDone = false;
     this.inputObserver = this.new InputImpl();
@@ -194,22 +198,26 @@ public class AdaptiveSnowshovelGrouper<InType, OutType, K, V> extends AbstractRx
     // but Output onNext already provides blocking
     
     System.out.println("<!--");
-    System.out.println("Adaptive period");
-    outputDriver.onNext(new Integer((maxPeriod + minPeriod) / 2));
+    System.out.println("Adaptive_period");
+    System.out.println("# time\t" + "aggregatedCount\t" + "flushingPeriod\t" + "prevCombiningRate\t" + "currCombiningRate\t");
+
+    outputDriver.onNext(new Long((maxPeriod + minPeriod) / 2));
     
     //currWindowSize = new AtomicInteger(maxPeriod + minPeriod / 2);
-    currWindowSize = maxPeriod + minPeriod / 2;
+    currWindowSize = 0;
     //prevWindowSize = new AtomicInteger(0);
     prevWindowSize = 0;
     //prevAggregatedCount = new AtomicInteger(0);
-    currAggregatedCount = new AtomicInteger(0);
+    currAggregatedCount = new AtomicLong(0);
     
     prevCombiningRate = 0;
     prevFlushingPeriod = 0;
     currFlushingPeriod = (maxPeriod + minPeriod) / 2;
-    flushingPeriodInterval = 25;
-    adjustingInterval = 1000;
-    prevAdjustedTime = System.nanoTime();
+    flushingPeriodInterval = 50;
+    adjustingInterval = 500;
+    prevAdjustedTime = startTime = System.nanoTime();
+    this.minPeriod = 0;
+    
     
   }
 
@@ -219,9 +227,9 @@ public class AdaptiveSnowshovelGrouper<InType, OutType, K, V> extends AbstractRx
     public void onCompleted() {
       synchronized (register) {
         inputDone = true;
-        register.notifyAll();
+        register.notifyAll(); 
       }
-      outputHandler.onNext(0);
+      outputHandler.onNext(1L);
     }
 
     @Override
@@ -274,9 +282,21 @@ public class AdaptiveSnowshovelGrouper<InType, OutType, K, V> extends AbstractRx
   }
 
   
+  enum WindowIndex { 
+    PERIOD(0), COUNT(1);
+   
+    private final int value;
+    private WindowIndex(int value){
+      this.value = value;
+    }
+    
+    public int getValue(){ return value ; }
+  }
  
   private interface Output<T> extends Observer<T> {}
   private  class OutputImpl<T> implements Output<T> {
+    
+    private final LinkedList<ArrayList<Integer>> slidingWindow = new LinkedList<ArrayList<Integer>>();
     @Override
     public void onCompleted() {
       if (!register.isEmpty() && inputDone) {
@@ -345,31 +365,40 @@ public class AdaptiveSnowshovelGrouper<InType, OutType, K, V> extends AbstractRx
 
       
       // Adjust period
-      /*
-      if( prevAdjustedTime + adjustingInterval < System.nanoTime()){
-        int aggCntSnapshot = currAggregatedCount.get();
-        int currCombiningRate = (int)(aggCntSnapshot / (float)adjustingInterval);
-        int deltaCombiningRate = currCombiningRate - prevCombiningRate;
-        int direction = (currFlushingPeriod - prevFlushingPeriod) / Math.abs(currFlushingPeriod - prevFlushingPeriod);
+      //if( prevAdjustedTime + (adjustingInterval * 1000000) < System.nanoTime()){
+        long elapsed = (System.nanoTime() - prevAdjustedTime);
+        long aggCntSnapshot = currAggregatedCount.get();
+        long currCombiningRate = (long)(aggCntSnapshot * 1000000000.0 / elapsed);
+        long deltaCombiningRate = currCombiningRate - prevCombiningRate;
+        //int deltaPeriod = Math.max(1, currFlushingPeriod - prevFlushingPeriod);
+        long deltaPeriod = (long) (elapsed - prevElapsedTime);
+        int direction = (int) (deltaPeriod == 0 ? 1 : deltaPeriod / Math.abs(deltaPeriod));
+        
+        double elapsedTime = (System.nanoTime() - startTime) / 1000000.0;
+        System.out.println(elapsedTime + "\t" + aggCntSnapshot + "\t" + currFlushingPeriod + "\t" + prevCombiningRate + "\t" + currCombiningRate + "\t" + (prevElapsedTime/1000000) + "\t" + elapsed/1000000);
 
-        System.out.println("prevCombiningRate: " + prevCombiningRate + ", currCombiningRate: " + currCombiningRate + ", period: " + currFlushingPeriod);
+        prevAdjustedTime = System.nanoTime();
+        prevElapsedTime = (long) elapsed;
 
-
+        //System.out.println("prevCombiningRate: " + prevCombiningRate + ", currCombiningRate: " + currCombiningRate + ", period: " + currFlushingPeriod);
         // change the values 
         prevFlushingPeriod = currFlushingPeriod;
         prevCombiningRate = currCombiningRate;
-        if( deltaCombiningRate < 0) {
-          currFlushingPeriod += -direction * flushingPeriodInterval;
-        }else{
-          currFlushingPeriod += direction * flushingPeriodInterval;
-        }
+        // WARINING: divide by 0 
+        int changeMovement = (int) (deltaCombiningRate == 0 ? 1 : deltaCombiningRate / Math.abs(deltaCombiningRate));
+        
 
+        currFlushingPeriod = Math.max(minPeriod, currFlushingPeriod + changeMovement * direction * flushingPeriodInterval);
+        
         currAggregatedCount.addAndGet(-aggCntSnapshot);
-        prevAdjustedTime = System.nanoTime();
-      }
-      */
+      //}
+      
+
+
 
       // Adjust period
+      
+      /*
       int currAggSnapshot = currAggregatedCount.get();
       if(currWindowSize < WINDOW_SIZE){
         currCombiningRate = (currAggSnapshot * 1000) / (currWindowSize);
@@ -390,16 +419,72 @@ public class AdaptiveSnowshovelGrouper<InType, OutType, K, V> extends AbstractRx
       int deltaCombiningRate = currCombiningRate - prevCombiningRate;
       int direction = (currFlushingPeriod - prevFlushingPeriod) / Math.abs(currFlushingPeriod - prevFlushingPeriod);
 
-      System.out.println("prevCombiningRate: " + prevCombiningRate + ", currCombiningRate: " + currCombiningRate + ", period: " + currFlushingPeriod);
+      double elapsedTime = (System.nanoTime() - startTime) / 1000000.0;
+      System.out.println(elapsedTime + "\t" + currAggSnapshot + "\t" + currFlushingPeriod + "\t" + prevCombiningRate + "\t" + currCombiningRate);
       prevFlushingPeriod = currFlushingPeriod;
       prevCombiningRate = currCombiningRate;
 
       int changeMovement = (deltaCombiningRate / Math.abs(deltaCombiningRate));
-      currFlushingPeriod = Math.max(5, currFlushingPeriod + changeMovement * direction * flushingPeriodInterval);
+      currFlushingPeriod = Math.max(10, currFlushingPeriod + changeMovement * direction * flushingPeriodInterval);
       currWindowSize = (Math.min(currWindowSize, WINDOW_SIZE) + currFlushingPeriod);
-
-      outputDriver.onNext(currFlushingPeriod);
       
+      outputDriver.onNext(currFlushingPeriod);
+      */
+      
+      //System.out.println("Adaptive onNext!");
+      
+      
+      
+      
+      /*
+      long aggCountSnapshot = currAggregatedCount.get();
+      int elapsed_time = (int)((System.nanoTime() - prevAdjustedTime) / 1000000.0); // ms
+      prevAdjustedTime = System.nanoTime();
+      int deltaCount = (int) (aggCountSnapshot - prevAggregatedCount);
+      
+      if ( currWindowSize + elapsed_time > WINDOW_SIZE) {
+        int tempSize = currWindowSize + elapsed_time;
+        long tempCnt = aggCountSnapshot;
+
+        do{
+          ArrayList<Integer> rem = slidingWindow.pop();
+          tempSize -= rem.get(WindowIndex.PERIOD.getValue());
+          tempCnt -= rem.get(WindowIndex.COUNT.getValue());
+          //System.out.println("aggCntSnapshot: " + aggCountSnapshot + ", tempCnt:" + tempCnt);
+        }while(tempSize > WINDOW_SIZE);
+
+        currWindowSize = tempSize;
+        currCombiningRate = (int) (tempCnt * 1000 / currWindowSize);
+        currAggregatedCount.addAndGet(tempCnt - aggCountSnapshot);
+        prevAggregatedCount = tempCnt;
+      }else{
+        currWindowSize += elapsed_time;
+        currCombiningRate = (int) (aggCountSnapshot * 1000 /  currWindowSize);
+        prevAggregatedCount = aggCountSnapshot;
+      }
+      
+      ArrayList<Integer> al = new ArrayList<Integer>(2);
+      al.add(elapsed_time); al.add(deltaCount);
+      slidingWindow.add(al);
+      
+      int deltaCombiningRate = currCombiningRate - prevCombiningRate;
+      //int deltaPeriod = currFlushingPeriod - prevFlushingPeriod;
+      int deltaPeriod = elapsed_time - prevElapsedTime;
+      int direction = deltaPeriod == 0 ? 1 : deltaPeriod / Math.abs(deltaPeriod);
+
+      // change the values 
+      double elapsedTime = (System.nanoTime() - startTime) / 1000000.0;
+      System.out.println(elapsedTime + "\t" + aggCountSnapshot + "\t" + currFlushingPeriod + "\t" + prevCombiningRate + "\t" + currCombiningRate + "\t" + prevElapsedTime + "\t" + elapsed_time);
+      prevFlushingPeriod = currFlushingPeriod;
+      prevCombiningRate = currCombiningRate;
+      prevElapsedTime = elapsed_time;
+      int changeMovement = deltaCombiningRate == 0 ? 1 : deltaCombiningRate / Math.abs(deltaCombiningRate);
+      
+
+      currFlushingPeriod = Math.max(minPeriod, currFlushingPeriod + changeMovement * direction * flushingPeriodInterval);
+      */
+      
+      outputDriver.onNext(currFlushingPeriod);
     }
   }
   
