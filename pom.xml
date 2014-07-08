@@ -4,7 +4,7 @@
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
     <modelVersion>4.0.0</modelVersion>
     <groupId>com.microsoft.wakecontrib</groupId>
-    <version>0.4</version>
+    <version>0.5</version>
     <packaging>pom</packaging>
     <name>Wake-Contrib-Project</name>
     <artifactId>wake-contrib-project</artifactId>
@@ -32,7 +32,7 @@
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <hadoop.version>2.2.0</hadoop.version>
-        <reef.version>0.4</reef.version>
+        <reef.version>0.5</reef.version>
         <jetty.version>6.1.26</jetty.version>
     </properties>
 
