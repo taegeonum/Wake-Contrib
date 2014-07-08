@@ -17,7 +17,9 @@ package com.microsoft.wake.contrib.synchronization;
 
 import java.io.Serializable;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Scanner;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Logger;
@@ -30,10 +32,13 @@ import com.microsoft.tang.annotations.Parameter;
 import com.microsoft.wake.EStage;
 import com.microsoft.wake.EventHandler;
 import com.microsoft.wake.impl.ThreadPoolStage;
+import com.microsoft.wake.remote.Codec;
 import com.microsoft.wake.remote.RemoteIdentifier;
 import com.microsoft.wake.remote.RemoteIdentifierFactory;
 import com.microsoft.wake.remote.RemoteManager;
 import com.microsoft.wake.remote.RemoteMessage;
+import com.microsoft.wake.remote.impl.MultiCodec;
+import com.microsoft.wake.remote.impl.ObjectSerializableCodec;
 
 /**
  * One time use. After waitAll() returns, all calls to waitAll() will
@@ -114,9 +119,9 @@ public class Phaser implements AutoCloseable {
   
   private static class SignalMessage implements Serializable {
     private static final long serialVersionUID = 1L;
-    public final RemoteIdentifier remoteId;
+    public final String remoteId;
     public SignalMessage(RemoteIdentifier remoteId) {
-      this.remoteId = remoteId;
+      this.remoteId = remoteId.toString();
     }
   }
   private  static class SignalDoneMessage implements Serializable {
@@ -153,7 +158,7 @@ public class Phaser implements AutoCloseable {
     this.signal = new Signal();
     this.num = numParticipants;
     this.delayedRegistration = delayedRegistration;
-    
+   
     this.checkedIn = new AtomicInteger(0);
    
     if (this.masterRID.equals(selfRID)) {
@@ -216,11 +221,13 @@ public class Phaser implements AutoCloseable {
     @Override
     public void onNext(RemoteMessage<SignalMessage> m) {
       assert masterRID.equals(selfRID);
+      
 
       int current = checkedIn.incrementAndGet();
+      //System.out.println("received from " + m.getIdentifier() +" phaser count now " + current +" / "+num);
       if (delayedRegistration) {
         synchronized (participantsHandlers) {
-          participantsHandlers.add(remoteManager.getHandler(m.getMessage().remoteId, SignalDoneMessage.class));
+          participantsHandlers.add(remoteManager.getHandler(Phaser.this.idfac.getNewInstance(m.getMessage().remoteId), SignalDoneMessage.class));
         }
       }
       LOG.info("received from " + m.getIdentifier() +" phaser count now " + current +" / "+num);
@@ -280,6 +287,37 @@ public class Phaser implements AutoCloseable {
   
   
 
+  // TODO: remove
+  public static class PhaserCodec implements Codec<Object> {
+    
+    private final MultiCodec<Object> mc;
+    private Map<Class<? extends Object>, Codec<? extends Object>> clazzToCodecMap;
+    
+    @Inject
+    public PhaserCodec(){
+      this.clazzToCodecMap = new HashMap<Class<? extends Object>, Codec<? extends Object>>();
+      clazzToCodecMap.put(SignalMessage.class, new SignalMessageCodec());
+      clazzToCodecMap.put(SignalDoneMessage.class, new SignalDoneMessageCodec());
+      this.mc = new MultiCodec<Object>(clazzToCodecMap);
+
+    }
+    
+    public class SignalMessageCodec extends ObjectSerializableCodec<SignalMessage>{
+    }
+    
+    public class SignalDoneMessageCodec extends ObjectSerializableCodec<SignalDoneMessage>{
+    }
+    
+    @Override
+    public byte[] encode(Object paramT) {
+      return mc.encode(paramT);
+    }
+
+    @Override
+    public Object decode(byte[] paramArrayOfByte) {
+      return mc.decode(paramArrayOfByte);
+    }
+  }
 }
 
 
