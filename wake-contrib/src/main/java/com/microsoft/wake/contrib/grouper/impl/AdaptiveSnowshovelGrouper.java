@@ -67,14 +67,10 @@ public class AdaptiveSnowshovelGrouper<InType, OutType, K, V> extends AbstractRx
   
   private long prevCombiningRate;
   private long prevFlushingPeriod;
-  
   private long currFlushingPeriod;
   private long flushingPeriodInterval; // ms
   private long prevAdjustedTime;
   private long prevElapsedTime;
- //private long prevAdjustedTimeForChecker;
-  //private AtomicLong currAggregatedCountForChecker;
-  
   private long startTime;
   
   private AtomicLong currAggregatedCount;
