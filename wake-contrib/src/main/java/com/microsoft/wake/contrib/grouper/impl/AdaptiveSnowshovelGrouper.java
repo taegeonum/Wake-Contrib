@@ -48,6 +48,9 @@ public class AdaptiveSnowshovelGrouper<InType, OutType, K, V> extends AbstractRx
   @NamedParameter(doc = "The interval of changing flushing period. (ms)", short_name = "interval", default_value = "50")
   public static final class Interval implements Name<Long> {}
   
+  @NamedParameter(doc = "The initial flushing period. (ms)", short_name = "initial_period", default_value = "150")
+  public static final class InitialPeriod implements Name<Long> {}
+  
   private Logger LOG = Logger.getLogger(CombiningSnowshovelGrouper.class.getName());
   
   private ConcurrentSkipListMap<K, V> register;
@@ -65,7 +68,7 @@ public class AdaptiveSnowshovelGrouper<InType, OutType, K, V> extends AbstractRx
 
   private final OutputImpl<Long> outputHandler;
   
-  private long prevCombiningRate;
+  private long prevCombiningRate; 
   private long prevFlushingPeriod;
   private long currFlushingPeriod;
   private long flushingPeriodInterval; // ms
@@ -79,19 +82,26 @@ public class AdaptiveSnowshovelGrouper<InType, OutType, K, V> extends AbstractRx
   private final long minPeriod;
   private final long maxPeriod;
 
-
   
   /* 
    * Adaptive Snowshovel grouper 
-   * It adjusts snowshovel flushing period in regard to the combined count.
-   *
+   * It adjusts snowshovel flushing period in regard to the combining rate.
+   * 
+   * The flushing period increases by @interval if ( 
+   * prevCombiningRate < currCombiningRate && prevFlushingPeriod < currFlushingPeriod ||
+   * prevCombiningRate > currCombiningRate && prevFlushingPeriod > currFlushingPeriod ) 
+   * The flushing period decreases by @interval otherwise. 
+   * 
+   * @minPeriod <= flushing period <= @maxPeriod
+   * 
    * @param c   combiner
    * @param p   partitioner
    * @param ext   extractor
    * @param o   output observer
    * @param stageName   stageName 
-   * @param minPeriod   minimum period
-   * @param maxPeriod   maximum period
+   * @param initialPeriod   initial flushing period
+   * @param minPeriod   minimum flushing period
+   * @param maxPeriod   maximum flushing period
    * @param interval    adjusting interval
    * 
    */
@@ -100,6 +110,7 @@ public class AdaptiveSnowshovelGrouper<InType, OutType, K, V> extends AbstractRx
   public AdaptiveSnowshovelGrouper(Combiner<OutType, K, V> c, Partitioner<K> p, Extractor<InType, K, V> ext,
       @Parameter(StageConfiguration.StageObserver.class) Observer<Tuple<Integer, OutType>> o, 
       @Parameter(StageConfiguration.StageName.class) String stageName,
+      @Parameter(InitialPeriod.class) long initialPeriod,
       @Parameter(MaxPeriod.class) long maxPeriod,
       @Parameter(MinPeriod.class) long minPeriod,
       @Parameter(Interval.class) long interval
@@ -128,14 +139,13 @@ public class AdaptiveSnowshovelGrouper<InType, OutType, K, V> extends AbstractRx
     System.out.println("Adaptive_period");
     System.out.println("# time\t" + "aggregatedCount\t" + "flushingPeriod\t" + "prevCombiningRate\t" + "currCombiningRate\t prevElapstedTime\t currElapsedTime");
 
-    outputDriver.onNext(new Long((maxPeriod + minPeriod) / 2));
+    outputDriver.onNext(new Long(initialPeriod));
     
     currAggregatedCount = new AtomicLong(0);
     prevAggregatedCount = new AtomicLong(0);
-    //currAggregatedCountForChecker = new AtomicLong(0);
     prevCombiningRate = 0;
     prevFlushingPeriod = 0;
-    currFlushingPeriod = 150;//(maxPeriod + minPeriod) / 2;
+    currFlushingPeriod = initialPeriod;
     prevAdjustedTime = startTime = System.nanoTime();
     
     flushingPeriodInterval = interval;
