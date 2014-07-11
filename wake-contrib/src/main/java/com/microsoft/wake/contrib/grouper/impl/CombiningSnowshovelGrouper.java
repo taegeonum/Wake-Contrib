@@ -15,31 +15,26 @@ package com.microsoft.wake.contrib.grouper.impl;
  * limitations under the License.
  */
 
-import com.microsoft.wake.contrib.grouper.Tuple;
-import com.microsoft.wake.contrib.grouper.Grouper;
-import com.microsoft.wake.contrib.grouper.GrouperEvent;
-import com.microsoft.wake.impl.ThreadPoolStage;
-import com.microsoft.tang.Injector;
-import com.microsoft.tang.JavaConfigurationBuilder;
-import com.microsoft.tang.Tang;
-import com.microsoft.tang.annotations.Parameter;
-import com.microsoft.wake.EStage;
-import com.microsoft.wake.EventHandler;
-import com.microsoft.wake.StageConfiguration;
-import com.microsoft.wake.rx.AbstractRxStage;
-import com.microsoft.wake.rx.Observer;
-import com.microsoft.wake.time.event.Alarm;
-import com.microsoft.wake.time.runtime.RuntimeClock;
-
-import org.apache.commons.lang.NotImplementedException;
-
-import javax.inject.Inject;
-
 import java.util.Map;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+
+import javax.inject.Inject;
+
+import org.apache.commons.lang.NotImplementedException;
+
+import com.microsoft.tang.annotations.Parameter;
+import com.microsoft.wake.EStage;
+import com.microsoft.wake.EventHandler;
+import com.microsoft.wake.StageConfiguration;
+import com.microsoft.wake.contrib.grouper.Grouper;
+import com.microsoft.wake.contrib.grouper.GrouperEvent;
+import com.microsoft.wake.contrib.grouper.Tuple;
+import com.microsoft.wake.metrics.Meter;
+import com.microsoft.wake.rx.AbstractRxStage;
+import com.microsoft.wake.rx.Observer;
 
 //TODO: document Comparable requirement on K for the skip list implementation
 public class CombiningSnowshovelGrouper<InType, OutType, K, V> extends AbstractRxStage<InType> implements Grouper<InType> {
@@ -60,17 +55,13 @@ public class CombiningSnowshovelGrouper<InType, OutType, K, V> extends AbstractR
 
   private final OutputImpl outputHandler;
   
-  // TODO: remove
-  private final AtomicInteger combinedCount = new AtomicInteger(0);
-  private final AtomicInteger prevCombinedCount = new AtomicInteger(0);
+  private long prevCombinedCount;
   private  long startTime;
   private  long endTime;
   
   private long prevAdjustedTime;
+  private Meter combiningMeter;
 
-  private RuntimeClock clock;
-
-  private ThreadPoolStage<Alarm> stage;
   
   @Inject
   public CombiningSnowshovelGrouper(Combiner<OutType, K, V> c, Partitioner<K> p, Extractor<InType, K, V> ext,
@@ -79,18 +70,6 @@ public class CombiningSnowshovelGrouper<InType, OutType, K, V> extends AbstractR
       @Parameter(StageConfiguration.StageName.class) String stageName,
       @Parameter(ContinuousStage.PeriodNS.class) long outputPeriod_ns) {
     super(stageName);
-    
-    // event checker 
-    try {
-      clock = buildClock();
-    } catch (Exception e) {
-      // TODO Auto-generated catch block
-      e.printStackTrace();
-    }
-    new Thread(clock).start();
-    final EventsCountChecker checker = new EventsCountChecker(clock, 500);
-    stage = new ThreadPoolStage<>(checker, 1);
-    stage.onNext(null);
     
     this.c = c;
     this.p = p;
@@ -110,14 +89,10 @@ public class CombiningSnowshovelGrouper<InType, OutType, K, V> extends AbstractR
     // The alternative placement of this event is in the first call to onNext,
     // but Output onNext already provides blocking
     outputDriver.onNext(new GrouperEvent());
-    // TODO: remove
+    
     startTime = prevAdjustedTime = System.nanoTime();
-    
-    
-    // TODO: remove
-    System.out.println("<!--");
-    System.out.println("snow-" + outputPeriod_ns + "_combiningRate");
-    System.out.println("# time  aggregatedCount  elapsed_time currCombiningRate");
+    prevCombinedCount = 0;
+    combiningMeter = new Meter(stageName);
   }
 
   @Inject
@@ -167,7 +142,9 @@ public class CombiningSnowshovelGrouper<InType, OutType, K, V> extends AbstractR
         if (oldVal == null) {
           succ = (null == (oldVal = register.putIfAbsent(key, val)));
           if (succ) {
-            if (LOG.isLoggable(Level.FINER)) LOG.finer("input key:"+key+" val:"+val+" (new)");
+            if (LOG.isLoggable(Level.FINER)) { 
+              LOG.finer("input key:"+key+" val:"+val+" (new)");
+            }
             break;
           }
         } else {
@@ -176,14 +153,14 @@ public class CombiningSnowshovelGrouper<InType, OutType, K, V> extends AbstractR
           if (!succ)
             oldVal = register.get(key);
           else {
-            if (LOG.isLoggable(Level.FINER)) LOG.finer("input key:"+key+" val:"+val+" -> newVal:"+newVal);
+            if (LOG.isLoggable(Level.FINER)) {
+              LOG.finer("input key:"+key+" val:"+val+" -> newVal:"+newVal);
+            }
             break;
           }
         }
       } while (true);
-      
-      // TODO: remove
-      combinedCount.incrementAndGet();
+      combiningMeter.mark(1L);
 
       // TODO: make less conservative
       if (sleeping.get() > 0) {
@@ -191,7 +168,6 @@ public class CombiningSnowshovelGrouper<InType, OutType, K, V> extends AbstractR
           register.notify();
         }
       }
-      
       
 
      
@@ -253,11 +229,6 @@ public class CombiningSnowshovelGrouper<InType, OutType, K, V> extends AbstractR
           }
           sleeping.decrementAndGet();
           if (inputDone) {
-            //TODO: remove
-            endTime = System.nanoTime();
-            
-            System.out.println("# combiningRate: " + combinedCount.get() / ((endTime - startTime) / 1000000000.0) + ", combinedCount: " + combinedCount.get());
-            System.out.println("-->");
             doneHandler.onNext(threadId);
             return;
           }
@@ -278,61 +249,33 @@ public class CombiningSnowshovelGrouper<InType, OutType, K, V> extends AbstractR
           cursor = (nextKey == null) ? null : new Tuple<>(nextKey, register.remove(nextKey));
         }
       } while (!flushedSomething);
-      
-
-      
-      //System.out.println("acutual elapsed_time:" + (System.nanoTime() - prevAdjustedTime)/1000000.0);
-    }
-  }
-  
-  // TODO: remove
-  private class EventsCountChecker implements EventHandler<Alarm> {
-
-    private final RuntimeClock clock;
-    private final int duration;
-
-    public EventsCountChecker(RuntimeClock clock, Integer eventsCheckingDuration) {
-      this.clock = clock;
-      this.duration = eventsCheckingDuration;
 
     }
-
-    @Override
-    public void onNext(final Alarm value) {
-      int cntSnapshot = combinedCount.get();
-      long currTime = System.nanoTime();
-      int elapsedTime = (int) ((currTime - startTime) / 1000000.0);
-      int actualElapsedTime = (int) ((currTime - prevAdjustedTime) / 1000000.0);
-      System.out.println(elapsedTime + "\t" + cntSnapshot + "\t" +  actualElapsedTime + "\t" + (cntSnapshot - prevCombinedCount.get()) * 1000.0 / actualElapsedTime );
-      
-      prevCombinedCount.set(cntSnapshot);
-      prevAdjustedTime = currTime;
-      clock.scheduleAlarm(duration, this);
-    }
-  }
-  
-  // TODO: remove
-  private static RuntimeClock buildClock() throws Exception {
-    final JavaConfigurationBuilder builder = Tang.Factory.getTang()
-        .newConfigurationBuilder();
-
-    final Injector injector = Tang.Factory.getTang()
-        .newInjector(builder.build());
-
-    return injector.getInstance(RuntimeClock.class);
   }
   
   
   @Override
   public String toString() {
-    return "register: "+register;
+
+    // time  aggregatedCount  elapsed_time currCombiningRate
+    long cntSnapshot = combiningMeter.getCount();
+    long currTime = System.nanoTime();
+    int elapsedTime = (int) ((currTime - startTime) / 1000000.0);
+    int actualElapsedTime = (int) ((currTime - prevAdjustedTime) / 1000000.0);
+    StringBuilder sb = new StringBuilder();
+    sb.append(elapsedTime).append("\t")
+    .append(cntSnapshot).append("\t")
+    .append(actualElapsedTime).append("\t")
+    .append((cntSnapshot - prevCombinedCount) * 1000.0 / actualElapsedTime);
+    
+    prevCombinedCount = cntSnapshot;
+    prevAdjustedTime = elapsedTime;
+    return sb.toString();
   }
 
   @Override
   public void close() throws Exception {
     this.outputDriver.close();
-    stage.close();
-    clock.close();
   }
 
   @Override
