@@ -15,25 +15,16 @@
  */
 package com.microsoft.wake.contrib.grouper.impl;
 
-import java.util.Arrays;
 import java.util.List;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import javax.inject.Inject;
 
-import com.microsoft.tang.Injector;
-import com.microsoft.tang.JavaConfigurationBuilder;
-import com.microsoft.tang.Tang;
-import com.microsoft.tang.annotations.Name;
-import com.microsoft.tang.annotations.NamedParameter;
 import com.microsoft.tang.annotations.Parameter;
 import com.microsoft.tang.exceptions.InjectionException;
 import com.microsoft.wake.AbstractEStage;
@@ -41,15 +32,12 @@ import com.microsoft.wake.EventHandler;
 import com.microsoft.wake.StageConfiguration;
 import com.microsoft.wake.WakeParameters;
 import com.microsoft.wake.exception.WakeRuntimeException;
-import com.microsoft.wake.impl.DefaultThreadFactory;
 import com.microsoft.wake.impl.StageManager;
 import com.microsoft.wake.rx.Observer;
-import com.microsoft.wake.time.event.Alarm;
-import com.microsoft.wake.time.runtime.RuntimeClock;
 
 
 /**
- * Stage that executes the observer with a thread pool
+ * Stage that executes the observer after initial delay. 
  *
  * @param <T> type
  */
@@ -62,11 +50,9 @@ public final class InitialDelayStage<T> extends AbstractEStage<T> {
   private final AtomicBoolean done = new AtomicBoolean(false);
   private ScheduledExecutorService scheduler;
 
-  @NamedParameter(default_value="1000")
-  public final static class DelayMS implements Name<Long>{}
   
   /**
-   * Constructs a stage that continuously executes an event with specified number of threads
+   * Constructs a stage that executes an event after initial delay. 
    *
    * @param handler   the observer to execute
    * @param numThreads the number of threads
@@ -99,7 +85,6 @@ public final class InitialDelayStage<T> extends AbstractEStage<T> {
 
     @Override
     public void run() {
-      // TODO Auto-generated method stub
       InitialDelayStage.this.handler.onNext(delay);
     }
   }
@@ -113,7 +98,6 @@ public final class InitialDelayStage<T> extends AbstractEStage<T> {
   public void onNext(final T delay_ms) {
     beforeOnNext();
     final Long delay = (Long)delay_ms;
-    //System.out.println("InitialDelayStage onNext, period: " + delay);
     scheduler.schedule(new OutputTask(delay_ms), delay, TimeUnit.MILLISECONDS);
     afterOnNext();
   }
