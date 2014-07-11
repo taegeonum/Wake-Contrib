@@ -16,8 +16,8 @@ package com.microsoft.wake.contrib.grouper.impl;
  */
 import java.util.Map;
 import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -34,6 +34,7 @@ import com.microsoft.wake.EventHandler;
 import com.microsoft.wake.StageConfiguration;
 import com.microsoft.wake.contrib.grouper.Grouper;
 import com.microsoft.wake.contrib.grouper.Tuple;
+import com.microsoft.wake.metrics.Meter;
 import com.microsoft.wake.rx.AbstractRxStage;
 import com.microsoft.wake.rx.Observer;
 
@@ -68,7 +69,6 @@ public class AdaptiveSnowshovelGrouper<InType, OutType, K, V> extends AbstractRx
 
   private final OutputImpl<Long> outputHandler;
   
-  private long prevCombiningRate; 
   private long prevFlushingPeriod;
   private long currFlushingPeriod;
   private long flushingPeriodInterval; // ms
@@ -76,11 +76,18 @@ public class AdaptiveSnowshovelGrouper<InType, OutType, K, V> extends AbstractRx
   private long prevElapsedTime;
   private long startTime;
   
-  private AtomicLong currAggregatedCount;
-  private AtomicLong prevAggregatedCount;
+  private double currCombiningRate;
+  private double prevCombiningRate; 
+
+  //private AtomicLong currAggregatedCount;
+  //private AtomicLong prevAggregatedCount;
+  private long aggCntSnapshot;
+  private long prevAggregatedCount;
   
   private final long minPeriod;
   private final long maxPeriod;
+    
+  private final Meter combiningMeter;
 
   
   /* 
@@ -128,22 +135,15 @@ public class AdaptiveSnowshovelGrouper<InType, OutType, K, V> extends AbstractRx
     inputDone = false;
     this.inputObserver = this.new InputImpl();
     this.sleeping = new AtomicInteger();
+    this.combiningMeter = new Meter(stageName);
 
     // there is no dependence from input finish to output start
     // The alternative placement of this event is in the first call to onNext,
     // but Output onNext already provides blocking
-    
-    
-    // TODO: remove
-    System.out.println("<!--");
-    System.out.println("Adaptive_period");
-    System.out.println("# time\t" + "aggregatedCount\t" + "flushingPeriod\t" + "prevCombiningRate\t" + "currCombiningRate\t prevElapstedTime\t currElapsedTime");
 
     outputDriver.onNext(new Long(initialPeriod));
-    
-    currAggregatedCount = new AtomicLong(0);
-    prevAggregatedCount = new AtomicLong(0);
-    prevCombiningRate = 0;
+    prevAggregatedCount = 0;
+    prevCombiningRate = currCombiningRate = 0.0;
     prevFlushingPeriod = 0;
     currFlushingPeriod = initialPeriod;
     prevAdjustedTime = startTime = System.nanoTime();
@@ -187,7 +187,9 @@ public class AdaptiveSnowshovelGrouper<InType, OutType, K, V> extends AbstractRx
         if (oldVal == null) {
           succ = (null == (oldVal = register.putIfAbsent(key, val)));
           if (succ) {
-            if (LOG.isLoggable(Level.FINER)) LOG.finer("input key:"+key+" val:"+val+" (new)");
+            if (LOG.isLoggable(Level.FINER)) {
+              LOG.finer("input key:"+key+" val:"+val+" (new)");
+            }
             break;
           }
         } else {
@@ -196,15 +198,16 @@ public class AdaptiveSnowshovelGrouper<InType, OutType, K, V> extends AbstractRx
           if (!succ)
             oldVal = register.get(key);
           else {
-            if (LOG.isLoggable(Level.FINER)) LOG.finer("input key:"+key+" val:"+val+" -> newVal:"+newVal);
+            if (LOG.isLoggable(Level.FINER)) {
+              LOG.finer("input key:"+key+" val:"+val+" -> newVal:"+newVal);
+            }
             break;
           }
         }
       } while (true);
       
-      currAggregatedCount.incrementAndGet();
-      //currAggregatedCountForChecker.incrementAndGet();
-
+      combiningMeter.mark(1L);
+      
       // TODO: make less conservative
       if (sleeping.get() > 0) {
         synchronized (register) {
@@ -289,30 +292,28 @@ public class AdaptiveSnowshovelGrouper<InType, OutType, K, V> extends AbstractRx
 
       
       // Adjust period
+      
       long currTime = System.nanoTime();
       long elapsed = (currTime - prevAdjustedTime);
-      long aggCntSnapshot = currAggregatedCount.get();
-      long currCombiningRate = (long)((aggCntSnapshot - prevAggregatedCount.get()) * 1000000000.0 / elapsed);
-      long deltaCombiningRate = currCombiningRate - prevCombiningRate;
+      aggCntSnapshot = combiningMeter.getCount();
+      currCombiningRate = ((aggCntSnapshot - prevAggregatedCount) * 1000000000.0 / elapsed);
+      double deltaCombiningRate = currCombiningRate - prevCombiningRate;
       long deltaPeriod = (long) (elapsed - prevElapsedTime);
 
+      // + or - 
       int direction = sign(deltaCombiningRate) / sign(deltaPeriod);
 
-      double elapsedTime = (currTime - startTime) / 1000000.0;
-      System.out.println(elapsedTime + "\t" + aggCntSnapshot + "\t" + currFlushingPeriod + "\t" + prevCombiningRate + "\t" + currCombiningRate + "\t" + (prevElapsedTime/1000000) + "\t" + elapsed/1000000);
-
+      // update the prev values 
       prevAdjustedTime = currTime;
       prevElapsedTime = elapsed;
-
-      // change the values 
       prevFlushingPeriod = currFlushingPeriod;
       prevCombiningRate = currCombiningRate;
-
       currFlushingPeriod = Math.min(maxPeriod, Math.max(minPeriod, currFlushingPeriod + direction * flushingPeriodInterval));
-      prevAggregatedCount.set(aggCntSnapshot);
-
+      prevAggregatedCount = aggCntSnapshot;
       outputDriver.onNext(currFlushingPeriod);
+
     }
+    
   }
   
   private int sign(long num){
@@ -320,9 +321,29 @@ public class AdaptiveSnowshovelGrouper<InType, OutType, K, V> extends AbstractRx
     return (int) (num / Math.abs(num));
   }
   
+  private int sign(double num){
+    num = num == 0 ? 1 : num;
+    return (int) (num / Math.abs(num));
+  }
+  
   @Override
   public String toString() {
-    return "register: "+register;
+    
+    // time aggregatedCount currFlushingPeriod prevCombiningRate currCombiningRate prevElapstedTime currElapsedTime"
+    long currTime = System.nanoTime();
+    long elapsed = (currTime - prevAdjustedTime);
+    double elapsedTime = (currTime - startTime) / 1000000.0;
+
+    StringBuilder sb = new StringBuilder();
+    sb.append(elapsedTime).append("\t")
+    .append(aggCntSnapshot).append("\t")
+    .append(currFlushingPeriod).append("\t")
+    .append(prevCombiningRate).append("\t")
+    .append(currCombiningRate).append("\t")
+    .append(prevElapsedTime/1000000).append("\t")
+    .append(elapsed/1000000).append("\t");
+
+    return sb.toString();
   }
 
   @Override
@@ -333,7 +354,6 @@ public class AdaptiveSnowshovelGrouper<InType, OutType, K, V> extends AbstractRx
   @Override
   public void onCompleted() {
     inputObserver.onCompleted();
-    System.out.println("--!>");
   }
   @Override
   public void onError(Exception arg0) {
